@@ -1,0 +1,136 @@
+
+#include <IRremote.hpp>
+
+#define IR_PIN 2
+
+// L298N motor driver pins
+const int IN1 = 8;
+const int IN2 = 9;
+const int IN3 = 10;
+const int IN4 = 11;
+const int ENA = 5;
+const int ENB = 6;
+
+// Motor settings
+const int SPEED = 150;
+
+// CHANGE THE TIME HERE
+const unsigned long RUN_TIME = 500;  // 3 seconds
+
+// IR remote button codes
+// Verify these codes using Serial Monitor
+const uint8_t CMD_FORWARD = 0x18;
+const uint8_t CMD_BACK    = 0x52;
+const uint8_t CMD_LEFT    = 0x08;
+const uint8_t CMD_RIGHT   = 0x5A;
+
+// Motor status
+bool motorsRunning = false;
+unsigned long motorStartTime = 0;
+
+void stopMotors() {
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+
+  motorsRunning = false;
+
+  Serial.println("MOTORS STOPPED");
+  Serial.println("Ready for next button press");
+}
+
+void drive(int leftSpeed, int rightSpeed) {
+  // Left motor direction
+  digitalWrite(IN1, leftSpeed > 0 ? HIGH : LOW);
+  digitalWrite(IN2, leftSpeed < 0 ? HIGH : LOW);
+
+  // Right motor direction
+  digitalWrite(IN3, rightSpeed > 0 ? HIGH : LOW);
+  digitalWrite(IN4, rightSpeed < 0 ? HIGH : LOW);
+
+  // Set motor speeds
+  analogWrite(ENA, abs(leftSpeed));
+  analogWrite(ENB, abs(rightSpeed));
+
+  motorsRunning = true;
+  motorStartTime = millis();
+
+  Serial.println("MOTORS RUNNING");
+  Serial.print("Running time: ");
+  Serial.print(RUN_TIME / 1000.0);
+  Serial.println(" seconds");
+}
+
+void setup() {
+  Serial.begin(9600);
+
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+
+  stopMotors();
+
+  IrReceiver.begin(IR_PIN, ENABLE_LED_FEEDBACK);
+
+  Serial.println("=== IR REMOTE CAR ===");
+  Serial.println("Forward, Backward, Left, Right");
+  Serial.println("Each press runs for 3 seconds");
+  Serial.println("Motors stop automatically");
+}
+
+void loop() {
+  // Read IR remote
+  if (IrReceiver.decode()) {
+    uint8_t cmd = IrReceiver.decodedIRData.command;
+
+    bool isRepeat =
+      (IrReceiver.decodedIRData.flags &
+       IRDATA_FLAGS_IS_REPEAT);
+
+    if (!isRepeat) {
+      Serial.print("IR Command: 0x");
+      Serial.println(cmd, HEX);
+
+      // Accept commands only when motors are stopped
+      if (!motorsRunning) {
+        if (cmd == CMD_FORWARD) {
+          Serial.println("FORWARD");
+          drive(SPEED, SPEED);
+        }
+        else if (cmd == CMD_BACK) {
+          Serial.println("BACKWARD");
+          drive(-SPEED, -SPEED);
+        }
+        else if (cmd == CMD_LEFT) {
+          Serial.println("LEFT");
+          drive(0, SPEED);
+        }
+        else if (cmd == CMD_RIGHT) {
+          Serial.println("RIGHT");
+          drive(SPEED, 0);
+        }
+        else {
+          Serial.println("Button not assigned");
+        }
+      }
+      else {
+        Serial.println("Wait until motors stop");
+      }
+    }
+
+    IrReceiver.resume();
+  }
+
+  // Stop motors after the selected time
+  if (motorsRunning &&
+      millis() - motorStartTime >= RUN_TIME) {
+    stopMotors();
+  }
+}
