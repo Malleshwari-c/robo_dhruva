@@ -1,0 +1,243 @@
+
+#include "BluetoothSerial.h"
+
+BluetoothSerial SerialBT;
+
+// L298N motor driver pins
+#define IN1 12
+#define IN2 14
+#define IN3 18
+#define IN4 19
+
+char currentCommand = 'S';
+
+unsigned long lastReceivedTime = 0;
+
+bool previousConnection = false;
+
+#define CONNECTION_TIMEOUT 500
+
+// ----------------------------
+// MOTOR STOP
+// ----------------------------
+void stopMotors() {
+
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+}
+
+// ----------------------------
+// MOTOR FORWARD
+// ----------------------------
+void moveForward() {
+
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+}
+
+// ----------------------------
+// MOTOR BACKWARD
+// ----------------------------
+void moveBackward() {
+
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+}
+
+// ----------------------------
+// MOTOR LEFT
+// ----------------------------
+void turnLeft() {
+
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+}
+
+// ----------------------------
+// MOTOR RIGHT
+// ----------------------------
+void turnRight() {
+
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+}
+
+// ----------------------------
+// EXECUTE COMMAND
+// ----------------------------
+void executeCommand(char command) {
+
+  switch (command) {
+
+    case 'F':
+      moveForward();
+      break;
+
+    case 'B':
+      moveBackward();
+      break;
+
+    case 'L':
+      turnLeft();
+      break;
+
+    case 'R':
+      turnRight();
+      break;
+
+    case 'S':
+      stopMotors();
+      break;
+
+    default:
+      stopMotors();
+      break;
+  }
+}
+
+// ----------------------------
+// SETUP
+// ----------------------------
+void setup() {
+
+  Serial.begin(115200);
+
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  stopMotors();
+
+  Serial.println("\n===== ESP32 BLUETOOTH MOTOR RECEIVER =====");
+
+  if (SerialBT.begin("ESP32test")) {
+
+    Serial.println("Bluetooth started successfully!");
+  }
+  else {
+
+    Serial.println("Bluetooth initialization failed!");
+
+    while (true) {
+      stopMotors();
+      delay(100);
+    }
+  }
+
+  Serial.println("Motors stopped by default.");
+  Serial.println("Waiting for transmitter...");
+}
+
+// ----------------------------
+// LOOP
+// ----------------------------
+void loop() {
+
+  bool connected = SerialBT.hasClient();
+
+  // Bluetooth connected
+  if (connected && !previousConnection) {
+
+    Serial.println("TRANSMITTER CONNECTED!");
+
+    previousConnection = true;
+
+    currentCommand = 'S';
+    lastReceivedTime = millis();
+
+    stopMotors();
+  }
+
+  // Bluetooth disconnected
+  if (!connected && previousConnection) {
+
+    Serial.println("TRANSMITTER DISCONNECTED!");
+
+    previousConnection = false;
+
+    currentCommand = 'S';
+
+    stopMotors();
+
+    Serial.println("MOTORS STOPPED");
+  }
+
+  // Receive commands
+  while (connected && SerialBT.available()) {
+
+    char received = SerialBT.read();
+
+    if (received == 'F' ||
+        received == 'B' ||
+        received == 'L' ||
+        received == 'R' ||
+        received == 'S') {
+
+      lastReceivedTime = millis();
+
+      if (received != currentCommand) {
+
+        currentCommand = received;
+
+        executeCommand(currentCommand);
+
+        Serial.print("RECEIVED: ");
+
+        switch (received) {
+
+          case 'F':
+            Serial.println("FORWARD");
+            break;
+
+          case 'B':
+            Serial.println("BACKWARD");
+            break;
+
+          case 'L':
+            Serial.println("LEFT");
+            break;
+
+          case 'R':
+            Serial.println("RIGHT");
+            break;
+
+          case 'S':
+            Serial.println("STOP");
+            break;
+        }
+      }
+    }
+  }
+
+  // Communication safety timeout
+  if (connected &&
+      millis() - lastReceivedTime > CONNECTION_TIMEOUT) {
+
+    if (currentCommand != 'S') {
+
+      currentCommand = 'S';
+
+      stopMotors();
+
+      Serial.println("COMMUNICATION LOST!");
+      Serial.println("MOTORS STOPPED");
+    }
+  }
+
+  delay(5);
+}
