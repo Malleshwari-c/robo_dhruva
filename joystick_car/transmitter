@@ -1,0 +1,134 @@
+
+#include "BluetoothSerial.h"
+
+BluetoothSerial SerialBT;
+
+#define JOY_X 25
+#define JOY_Y 26
+
+uint8_t receiverAddress[6] = {
+  0x58, 0x2A, 0xBD,
+  0xD8, 0x0E, 0x42
+};
+
+int centerX = 0;
+int centerY = 0;
+
+#define DEAD_ZONE 400
+#define SEND_INTERVAL 50
+
+char command = 'S';
+char previousCommand = ' ';
+
+unsigned long lastSendTime = 0;
+
+void setup() {
+
+  Serial.begin(115200);
+  analogReadResolution(12);
+
+  pinMode(JOY_X, INPUT);
+  pinMode(JOY_Y, INPUT);
+
+  Serial.println("\n===== BLUETOOTH JOYSTICK TRANSMITTER =====");
+  Serial.println("Keep joystick CENTERED...");
+
+  delay(3000);
+
+  long totalX = 0;
+  long totalY = 0;
+
+  for (int i = 0; i < 100; i++) {
+    totalX += analogRead(JOY_X);
+    totalY += analogRead(JOY_Y);
+    delay(10);
+  }
+
+  centerX = totalX / 100;
+  centerY = totalY / 100;
+
+  Serial.print("CENTER X: ");
+  Serial.println(centerX);
+
+  Serial.print("CENTER Y: ");
+  Serial.println(centerY);
+
+  // Bluetooth master mode
+  SerialBT.begin("ESP32_Controller", true);
+
+  Serial.println("Connecting to receiver...");
+
+  while (!SerialBT.connect(receiverAddress)) {
+    Serial.println("Connection failed. Retrying...");
+    delay(1000);
+  }
+
+  Serial.println("BLUETOOTH CONNECTED!");
+  Serial.println("Joystick control started.");
+}
+
+void loop() {
+
+  // Reconnect if Bluetooth disconnects
+  if (!SerialBT.connected()) {
+
+    command = 'S';
+    previousCommand = ' ';
+
+    Serial.println("Bluetooth disconnected!");
+
+    while (!SerialBT.connect(receiverAddress)) {
+      Serial.println("Reconnecting...");
+      delay(1000);
+    }
+
+    Serial.println("Bluetooth reconnected!");
+  }
+
+  int x = analogRead(JOY_X);
+  int y = analogRead(JOY_Y);
+
+  int dx = x - centerX;
+  int dy = y - centerY;
+
+  command = 'S';
+
+  // Direction detection
+  if (dy < -DEAD_ZONE) {
+    command = 'F';
+  }
+  else if (dy > DEAD_ZONE) {
+    command = 'B';
+  }
+  else if (dx < -DEAD_ZONE) {
+    command = 'L';
+  }
+  else if (dx > DEAD_ZONE) {
+    command = 'R';
+  }
+
+  // Send command every 50 ms
+  if (millis() - lastSendTime >= SEND_INTERVAL) {
+
+    lastSendTime = millis();
+
+    SerialBT.write((uint8_t)command);
+
+    if (command != previousCommand) {
+
+      Serial.print("TRANSMITTING: ");
+
+      switch (command) {
+        case 'F': Serial.println("FORWARD"); break;
+        case 'B': Serial.println("BACKWARD"); break;
+        case 'L': Serial.println("LEFT"); break;
+        case 'R': Serial.println("RIGHT"); break;
+        case 'S': Serial.println("STOP"); break;
+      }
+
+      previousCommand = command;
+    }
+  }
+
+  delay(5);
+}
